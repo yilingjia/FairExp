@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from numpy import log2
-from random import sample
 import numpy as np
 
 
@@ -10,7 +8,7 @@ def get_dcg(ordered_labels):
 
 
 def get_idcg(complete_labels, max_len):
-    return get_dcg(np.sort(complete_labels)[:-1 - max_len:-1])
+    return get_dcg(np.sort(complete_labels)[: -1 - max_len : -1])
 
 
 def get_single_ndcg_for_rankers(descending_rankings, document_labels, max_len, idcg=None):
@@ -18,14 +16,13 @@ def get_single_ndcg_for_rankers(descending_rankings, document_labels, max_len, i
         idcg = get_idcg(document_labels, max_len)
     if idcg == 0:
         return np.zeros(descending_rankings.shape[0])
-    return get_single_dcg_for_rankers(descending_rankings, document_labels, max_len)/idcg
+    return get_single_dcg_for_rankers(descending_rankings, document_labels, max_len) / idcg
 
 
 def get_single_dcg_for_rankers(descending_rankings, document_labels, max_len):
     displayed_rankings = descending_rankings[:, :max_len]
     displayed_labels = document_labels[displayed_rankings]
-    return np.sum((2 ** displayed_labels - 1) / np.log2(np.arange(displayed_labels.shape[1])
-                  + 2)[None, :], axis=1)
+    return np.sum((2 ** displayed_labels - 1) / np.log2(np.arange(displayed_labels.shape[1]) + 2)[None, :], axis=1)
 
 
 def evaluate_ranking(ranking, labels, idcg, max_len):
@@ -36,11 +33,11 @@ def evaluate_ranking(ranking, labels, idcg, max_len):
 
 
 def evaluate(rankings, label_vector, idcg_vector, n_queries, max_len):
-    '''
+    """
     Takes rankings as lists of indices, which corresponds to label_lists, lists of label lists.
-    '''
-    nominators = 2. ** label_vector - 1.
-    denominators = np.log2(rankings + 2.)
+    """
+    nominators = 2.0 ** label_vector - 1.0
+    denominators = np.log2(rankings + 2.0)
     nominators[idcg_vector == 0] = 0
     nominators[rankings >= max_len] = 0
 

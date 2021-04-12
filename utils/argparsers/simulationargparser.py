@@ -48,7 +48,7 @@ class SimulationArgumentParser(argparse.ArgumentParser):
             type=str,
             required=False,
             help="Path to folders where outputs should be stored, if not given output will be printed.",
-            default="/zf14/yj9xs/git/ol2r/results/output/",
+            default="/Users/yiling/git/PairRank/results/output/",
         )
 
         self._sim_add_argument(
@@ -57,7 +57,7 @@ class SimulationArgumentParser(argparse.ArgumentParser):
             type=str,
             required=False,
             help="Path to folders where run log and errors will be stored.",
-            default="/zf14/yj9xs/git/ol2r/results/log/",
+            default="/Users/yiling/git/PairRank/results/log/",
         )
 
         self._sim_add_argument(
@@ -66,7 +66,7 @@ class SimulationArgumentParser(argparse.ArgumentParser):
             type=str,
             required=False,
             help="Path to folders where averaged output of runs will be stored.",
-            default="/zf14/yj9xs/git/ol2r/results/average/",
+            default="/Users/yiling/git/PairRank/results/average/",
         )
 
         self._sim_add_argument(
@@ -150,6 +150,29 @@ class SimulationArgumentParser(argparse.ArgumentParser):
             dest="purge_test_set",
             action="store_false",
             help="Include non-relevant queries in evaluation on test-set.",
+        )
+
+        self._sim_add_argument(
+            "--algo", dest="algo", default="PairRank", type=str, help="the learning algorithm",
+        )
+
+        self._sim_add_argument(
+            "--update",
+            dest="update",
+            default="gd",
+            type=str,
+            help="how to update the model: gd, sgd, batch_sgd, online_sgd",
+        )
+
+        self._sim_add_argument(
+            "--learning_rate", dest="lr", default=0.1, type=float, help="learning rate of optimization",
+        )
+        self._sim_add_argument(
+            "--learning_rate_decay",
+            dest="lr_decay",
+            default=0.9999977,
+            type=float,
+            help="learning rate decay for optimization",
         )
 
         self._sim_add_argument(

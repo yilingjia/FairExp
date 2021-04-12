@@ -1,5 +1,7 @@
 tmp/*.pickle
 .vscode/
+datasets/
+results/
 
 # Compiled source #
 ###################
