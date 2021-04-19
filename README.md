@@ -7,7 +7,7 @@ PairRank aims at learning a pairwise learning to rank model online. In each roun
 Regret directly defined on the number of mis-ordered pairs is proven, which connects the online solution's theoretical convergence with its expected ranking performance.
 
 ### Usage
-To run the code to generate experimental results like those found in our papers, you will need to run a command in the following format, using Python 2:
+To run the code to generate experimental results like those found in our papers, you will need to run a command in the following format:
 ```
 $ python run_script.py [--algo ALGO] [--data_sets DATASET] [--lr LEARNING_RATE] [--lr_decay LEARNING_RATE_DECAY]
                        [--lambda LAMBDA] [--alpha ALPHA] [--click_models CLICK_MODEL] [--n_impr N_IMPR] [--update UPDATE]
