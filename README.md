@@ -1,6 +1,6 @@
-# The FacT
+# PairRank
 
-This is an implementation for the paper titled "The FacT: Taming Latent Factor Models for Explainability with Factorization Trees" which is published at SIGIR 2019. We public our source code in this repository.
+This is the source code for the paper titled "PairRank: Online Pairwise Learning to Rank by Divide-and-Conquer" which is published at the Web Conference 2021.
 
 ### Algorithm
 PairRank aims at learning a pairwise learning to rank model online. In each round, candidate documents are partitioned and ranked according to the model's confidence on the estimated pairwise rank order, and exploration is only performed on the uncertain pairs of documents, i.e., divide-and-conquer.  
