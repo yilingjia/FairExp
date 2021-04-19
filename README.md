@@ -1,4 +1,4 @@
-## This repositery is actively updating with respect to PairRank.
+## This repositery is actively updating for PairRank.
 
 # PairRank
 This repository contains the code used for the experiments in "PairRank: Online Pairwise Learning to Rank with Divide-and-Conquer" published at WWW 2021.
