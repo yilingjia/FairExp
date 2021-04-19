@@ -15,7 +15,8 @@ $ python run_script.py [--algo ALGO] [--data_sets DATASET] [--lr LEARNING_RATE] 
 ```
 Example:
 ```
-$ python run_script.py --algo pairrank --data_sets yahoo --click_models per --n_impr 5000 --lambda 0.1 --alpha 0.1 --update gd --rank random --seed 0 --ind --refind
+$ python run_script.py --algo pairrank --data_sets yahoo --click_models per --n_impr 5000 --lambda 0.1 --alpha 0.1 
+                       --update gd --rank random --seed 0 --ind --refine
 ```
 The detailed information about the input parameters can be found in /utils/argparsers/simulationargparser.py 
 
