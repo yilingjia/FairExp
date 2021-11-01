@@ -15,18 +15,14 @@ class SingleSimulation(object):
         self.click_model = click_model
         self.datafold = datafold
         if not self.train_only:
-            self.test_idcg_vector = get_idcg_list(
-                self.datafold.test_label_vector, self.datafold.test_doclist_ranges, self.n_results, spread=True
-            )
-        self.train_idcg_vector = get_idcg_list(
-            self.datafold.train_label_vector, self.datafold.train_doclist_ranges, self.n_results
-        )
+            self.test_idcg_vector = get_idcg_list(self.datafold.test_label_vector, self.datafold.test_doclist_ranges,
+                                                  self.n_results, spread=True)
+        self.train_idcg_vector = get_idcg_list(self.datafold.train_label_vector, self.datafold.train_doclist_ranges,
+                                               self.n_results)
 
-        self.run_details = {
-            "data folder": str(self.datafold.data_path),
-            "held-out data": str(self.datafold.heldout_tag),
-            "click model": self.click_model.get_name(),
-        }
+        self.run_details = {"data folder":   str(self.datafold.data_path),
+                            "held-out data": str(self.datafold.heldout_tag),
+                            "click model":   self.click_model.get_name(), }
         self.output_queue = output_queue
 
         self.print_frequency = sim_args.print_freq
@@ -46,8 +42,7 @@ class SingleSimulation(object):
     def timestep_evaluate(self, results, iteration, ranker, ranking_i, train_ranking, ranking_labels):
 
         test_print = not self.train_only and (
-            iteration == self.last_print or iteration == self.next_print or iteration == self.n_impressions
-        )
+                iteration == self.last_print or iteration == self.next_print or iteration == self.n_impressions)
 
         if test_print:
             cur_results = self.evaluate_ranker(iteration, ranker, ranking_i, train_ranking, ranking_labels)
@@ -73,24 +68,14 @@ class SingleSimulation(object):
 
     def evaluate_ranker(self, iteration, ranker, ranking_i, train_ranking, ranking_labels):
 
-        test_rankings = ranker.get_test_rankings(
-            self.datafold.test_feature_matrix, self.datafold.test_doclist_ranges, inverted=True
-        )
-        test_ndcg = evaluate(
-            test_rankings,
-            self.datafold.test_label_vector,
-            self.test_idcg_vector,
-            self.datafold.test_doclist_ranges.shape[0] - 1,
-            self.n_results,
-        )
+        test_rankings = ranker.get_test_rankings(self.datafold.test_feature_matrix, self.datafold.test_doclist_ranges,
+                                                 inverted=True)
+        test_ndcg = evaluate(test_rankings, self.datafold.test_label_vector, self.test_idcg_vector,
+                             self.datafold.test_doclist_ranges.shape[0] - 1, self.n_results, )
 
         train_ndcg = evaluate_ranking(train_ranking, ranking_labels, self.train_idcg_vector[ranking_i], self.n_results)
 
-        results = {
-            "iteration": iteration,
-            "heldout": np.mean(test_ndcg),
-            "display": np.mean(train_ndcg),
-        }
+        results = {"iteration": iteration, "heldout": np.mean(test_ndcg), "display": np.mean(train_ndcg), }
 
         for name, value in ranker.get_messages().items():
             results[name] = value
@@ -100,11 +85,7 @@ class SingleSimulation(object):
     def evaluate_ranker_train_only(self, iteration, ranker, ranking_i, train_ranking, ranking_labels):
 
         train_ndcg = evaluate_ranking(train_ranking, ranking_labels, self.train_idcg_vector[ranking_i], self.n_results)
-
-        results = {
-            "iteration": iteration,
-            "display": np.mean(train_ndcg),
-        }
+        results = {"iteration": iteration, "display": np.mean(train_ndcg), }
 
         for name, value in ranker.get_messages().items():
             results[name] = value
@@ -123,15 +104,15 @@ class SingleSimulation(object):
     def run(self, ranker, output_key):
         starttime = time.time()
 
-        ranker.setup(
-            train_features=self.datafold.train_feature_matrix, train_query_ranges=self.datafold.train_doclist_ranges
-        )
+        ranker.setup(train_features=self.datafold.train_feature_matrix,
+                     train_query_ranges=self.datafold.train_doclist_ranges)
 
         run_results = []
         impressions = 0
         for impressions in range(self.n_impressions):
             ranking_i, train_ranking = self.sample_and_rank(ranker)
             ranking_labels = self.datafold.train_query_labels(ranking_i)
+            ranking_groups = self.datafold.train_query_groups(ranking_i)
             clicks = self.click_model.generate_clicks(train_ranking, ranking_labels)
             self.timestep_evaluate(run_results, impressions, ranker, ranking_i, train_ranking, ranking_labels)
 
@@ -146,8 +127,5 @@ class SingleSimulation(object):
         ranker.clean()
 
         self.run_details["runtime"] = time.time() - starttime
-
         output = {"run_details": self.run_details, "run_results": run_results}
-
         self.output_queue.put((output_key, output))
-

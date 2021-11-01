@@ -2,232 +2,241 @@
 
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 import numpy as np
 import utils.rankings as rnk
 from models.linearmodel import LinearModel
 from algorithms.basiconlineranker import BasicOnlineRanker
+from utils.fair_util import *
+
 
 # Pairwise Differentiable Gradient Descent
 class PDGD(BasicOnlineRanker):
+    def __init__(self, learning_rate, learning_rate_decay, fair_alpha, decay_mode, unfairness, *args, **kargs):
+        super(PDGD, self).__init__(*args, **kargs)
+        self.learning_rate = learning_rate
+        self.learning_rate_decay = learning_rate_decay
+        self.model = LinearModel(n_features=self.n_features, learning_rate=learning_rate,
+                                 learning_rate_decay=learning_rate_decay, n_candidates=1)
+        self.fair_alpha = fair_alpha
+        self.decay_mode = decay_mode
+        self.unfairness = unfairness
+        self.current_unfairness = 0
+        self.uf_dict = {}
+        self.uf = {}
+        self.group_candidates = {self.n_results: generate_all_combination(self.n_results)}
+        self.create_unfairness_table(self.n_results)
 
-  def __init__(self, learning_rate, learning_rate_decay,
-               *args, **kargs):
-    super(PDGD, self).__init__(*args, **kargs)
-    self.learning_rate = learning_rate
-    self.learning_rate_decay = learning_rate_decay
-    self.model = LinearModel(n_features = self.n_features,
-                             learning_rate = learning_rate,
-                             learning_rate_decay = learning_rate_decay,
-                             n_candidates = 1)
+    @staticmethod
+    def default_parameters():
+        parent_parameters = BasicOnlineRanker.default_parameters()
+        parent_parameters.update({'learning_rate': 0.1, 'learning_rate_decay': 1.0, })
+        return parent_parameters
 
+    def create_unfairness_table(self, k):
+        self.uf_dict[k] = {}
+        position_bias = position_probability(k, self.decay_mode)
+        uf_table = self.group_candidates[k] * (-1 - self.fair_alpha) + 1
+        self.uf[k] = np.dot(uf_table, position_bias)
+        for i in range(len(self.group_candidates[k])):
+            group_sequence = self.group_candidates[k][i]
+            self.uf_dict[k]["".join(str(v) for v in group_sequence)] = self.uf[k][i]
 
-  @staticmethod
-  def default_parameters():
-    parent_parameters = BasicOnlineRanker.default_parameters()
-    parent_parameters.update({
-      'learning_rate': 0.1,
-      'learning_rate_decay': 1.0,
-      })
-    return parent_parameters
+    def calculate_unfairness(self, ranking):
 
-  def get_test_rankings(self, features,
-                        query_ranges, inverted=True):
-    scores = -self.model.score(features)
-    return rnk.rank_multiple_queries(
-                      scores,
-                      query_ranges,
-                      inverted=inverted,
-                      n_results=self.n_results)
+        # get group information
+        query_group = self.get_query_groups(self._last_query_id, self._train_groups, self._train_query_ranges)
+        if self.unfairness == 'projected':
+            k = min(len(ranking), self.n_results)
+            if k not in self.uf_dict:
+                self.group_candidates[k] = generate_all_combination(k)
+                self.create_unfairness_table(k)
+            ranking_group = query_group[ranking]
+            self.current_unfairness += self.uf_dict[k]["".join(str(v) for v in ranking_group)]
+        else:
+            print("unfairness calculation is not included")
+            exit()
 
-  def _create_train_ranking(self, query_id, query_feat, inverted):
-    assert inverted == False
-    n_docs = query_feat.shape[0]
-    k = np.minimum(self.n_results, n_docs)
-    self.doc_scores = self.model.score(query_feat)
-    self.doc_scores += 18 - np.amax(self.doc_scores)
-    self.ranking = self._recursive_choice(np.copy(self.doc_scores),
-                                          np.array([], dtype=np.int32),
-                                          k)
-    self._last_query_feat = query_feat
-    return self.ranking
+    def get_test_rankings(self, features, query_ranges, inverted=True):
+        scores = -self.model.score(features)
+        return rnk.rank_multiple_queries(scores, query_ranges, inverted=inverted, n_results=self.n_results)
 
-  def _recursive_choice(self, scores, incomplete_ranking, k_left):
-    n_docs = scores.shape[0]
-    scores[incomplete_ranking] = np.amin(scores)
-    scores += 18 - np.amax(scores)
-    exp_scores = np.exp(scores)
-    exp_scores[incomplete_ranking] = 0
-    probs = exp_scores/np.sum(exp_scores)
-    safe_n = np.sum(probs > 10**(-4)/n_docs)
-    safe_k = np.minimum(safe_n, k_left)
+    def _create_train_ranking(self, query_id, query_feat, inverted):
+        assert inverted == False
+        n_docs = query_feat.shape[0]
+        k = np.minimum(self.n_results, n_docs)
+        self.doc_scores = self.model.score(query_feat)
+        self.doc_scores += 18 - np.amax(self.doc_scores)
+        self.ranking = self._recursive_choice(np.copy(self.doc_scores), np.array([], dtype=np.int32), k)
+        self._last_query_feat = query_feat
+        self.calculate_unfairness(self.ranking[:self.n_results])
+        return self.ranking
 
-    next_ranking = np.random.choice(np.arange(n_docs),
-                                    replace=False,
-                                    p=probs,
-                                    size=safe_k)
-    ranking = np.concatenate((incomplete_ranking, next_ranking))
+    def _recursive_choice(self, scores, incomplete_ranking, k_left):
+        n_docs = scores.shape[0]
+        scores[incomplete_ranking] = np.amin(scores)
+        scores += 18 - np.amax(scores)
+        exp_scores = np.exp(scores)
+        exp_scores[incomplete_ranking] = 0
+        probs = exp_scores / np.sum(exp_scores)
+        safe_n = np.sum(probs > 10 ** (-4) / n_docs)
+        safe_k = np.minimum(safe_n, k_left)
 
-    k_left = k_left - safe_k
-    if k_left > 0:
-      return self._recursive_choice(scores, ranking, k_left)
-    else:
-      return ranking
+        next_ranking = np.random.choice(np.arange(n_docs), replace=False, p=probs, size=safe_k)
+        ranking = np.concatenate((incomplete_ranking, next_ranking))
 
-  def update_to_interaction(self, clicks):
-    if np.any(clicks):
-      self._update_to_clicks(clicks)
+        k_left = k_left - safe_k
+        if k_left > 0:
+            return self._recursive_choice(scores, ranking, k_left)
+        else:
+            return ranking
 
-  def _update_to_clicks(self, clicks):
-    n_docs = self.ranking.shape[0]
-    cur_k = np.minimum(n_docs, self.n_results)
+    def update_to_interaction(self, clicks):
+        if np.any(clicks):
+            self._update_to_clicks(clicks)
 
-    included = np.ones(cur_k, dtype=np.int32)
-    if not clicks[-1]:
-      included[1:] = np.cumsum(clicks[::-1])[:0:-1]
-    neg_ind = np.where(np.logical_xor(clicks, included))[0]
-    pos_ind = np.where(clicks)[0]
+    def _update_to_clicks(self, clicks):
+        n_docs = self.ranking.shape[0]
+        cur_k = np.minimum(n_docs, self.n_results)
 
-    n_pos = pos_ind.shape[0]
-    n_neg = neg_ind.shape[0]
-    n_pairs = n_pos*n_neg
+        included = np.ones(cur_k, dtype=np.int32)
+        if not clicks[-1]:
+            included[1:] = np.cumsum(clicks[::-1])[:0:-1]
+        neg_ind = np.where(np.logical_xor(clicks, included))[0]
+        pos_ind = np.where(clicks)[0]
 
-    if n_pairs == 0:
-      return
+        n_pos = pos_ind.shape[0]
+        n_neg = neg_ind.shape[0]
+        n_pairs = n_pos * n_neg
 
-    pos_r_ind = self.ranking[pos_ind]
-    neg_r_ind = self.ranking[neg_ind]
+        if n_pairs == 0:
+            return
 
-    pos_scores = self.doc_scores[pos_r_ind]
-    neg_scores = self.doc_scores[neg_r_ind]
+        pos_r_ind = self.ranking[pos_ind]
+        neg_r_ind = self.ranking[neg_ind]
 
-    log_pair_pos = np.tile(pos_scores, n_neg)
-    log_pair_neg = np.repeat(neg_scores, n_pos)
+        pos_scores = self.doc_scores[pos_r_ind]
+        neg_scores = self.doc_scores[neg_r_ind]
 
-    pair_trans = 18 - np.maximum(log_pair_pos, log_pair_neg)
-    exp_pair_pos = np.exp(log_pair_pos + pair_trans)
-    exp_pair_neg = np.exp(log_pair_neg + pair_trans)
+        log_pair_pos = np.tile(pos_scores, n_neg)
+        log_pair_neg = np.repeat(neg_scores, n_pos)
 
-    pair_denom = (exp_pair_pos + exp_pair_neg)
-    pair_w = np.maximum(exp_pair_pos, exp_pair_neg)
-    pair_w /= pair_denom
-    pair_w /= pair_denom
-    pair_w *= np.minimum(exp_pair_pos, exp_pair_neg)
+        pair_trans = 18 - np.maximum(log_pair_pos, log_pair_neg)
+        exp_pair_pos = np.exp(log_pair_pos + pair_trans)
+        exp_pair_neg = np.exp(log_pair_neg + pair_trans)
 
-    pair_w *= self._calculate_unbias_weights(pos_ind, neg_ind)
+        pair_denom = (exp_pair_pos + exp_pair_neg)
+        pair_w = np.maximum(exp_pair_pos, exp_pair_neg)
+        pair_w /= pair_denom
+        pair_w /= pair_denom
+        pair_w *= np.minimum(exp_pair_pos, exp_pair_neg)
 
-    reshaped = np.reshape(pair_w, (n_neg, n_pos))
-    pos_w =  np.sum(reshaped, axis=0)
-    neg_w = -np.sum(reshaped, axis=1)
+        pair_w *= self._calculate_unbias_weights(pos_ind, neg_ind)
 
-    all_w = np.concatenate([pos_w, neg_w])
-    all_ind = np.concatenate([pos_r_ind, neg_r_ind])
+        reshaped = np.reshape(pair_w, (n_neg, n_pos))
+        pos_w = np.sum(reshaped, axis=0)
+        neg_w = -np.sum(reshaped, axis=1)
 
-    self.model.update_to_documents(all_ind,
-                                   all_w)
+        all_w = np.concatenate([pos_w, neg_w])
+        all_ind = np.concatenate([pos_r_ind, neg_r_ind])
 
-  def _calculate_unbias_weights(self, pos_ind, neg_ind):
-    ranking_prob = self._calculate_observed_prob(pos_ind, neg_ind,
-                                                 self.doc_scores)
-    flipped_prob = self._calculate_flipped_prob(pos_ind, neg_ind,
-                                                self.doc_scores)
-    return flipped_prob / (ranking_prob + flipped_prob)
+        self.model.update_to_documents(all_ind, all_w)
 
-  def _calculate_observed_prob(self, pos_ind, neg_ind, doc_scores):
-    n_pos = pos_ind.shape[0]
-    n_neg = neg_ind.shape[0]
-    n_pairs = n_pos * n_neg
-    n_results = self.ranking.shape[0]
-    n_docs = doc_scores.shape[0]
+    def _calculate_unbias_weights(self, pos_ind, neg_ind):
+        ranking_prob = self._calculate_observed_prob(pos_ind, neg_ind, self.doc_scores)
+        flipped_prob = self._calculate_flipped_prob(pos_ind, neg_ind, self.doc_scores)
+        return flipped_prob / (ranking_prob + flipped_prob)
 
-    results_i = np.arange(n_results)
-    pair_i = np.arange(n_pairs)
-    doc_i = np.arange(n_docs)
+    def _calculate_observed_prob(self, pos_ind, neg_ind, doc_scores):
+        n_pos = pos_ind.shape[0]
+        n_neg = neg_ind.shape[0]
+        n_pairs = n_pos * n_neg
+        n_results = self.ranking.shape[0]
+        n_docs = doc_scores.shape[0]
 
-    pos_pair_i = np.tile(pos_ind, n_neg)
-    neg_pair_i = np.repeat(neg_ind, n_pos)
+        results_i = np.arange(n_results)
+        pair_i = np.arange(n_pairs)
+        doc_i = np.arange(n_docs)
 
-    min_pair_i = np.minimum(pos_pair_i, neg_pair_i)
-    max_pair_i = np.maximum(pos_pair_i, neg_pair_i)
-    range_mask = np.logical_and(min_pair_i[:, None] <= results_i,
-                                max_pair_i[:, None] >= results_i)
+        pos_pair_i = np.tile(pos_ind, n_neg)
+        neg_pair_i = np.repeat(neg_ind, n_pos)
 
-    safe_log = np.tile(doc_scores[None, :],
-                       [n_results, 1])
+        min_pair_i = np.minimum(pos_pair_i, neg_pair_i)
+        max_pair_i = np.maximum(pos_pair_i, neg_pair_i)
+        range_mask = np.logical_and(min_pair_i[:, None] <= results_i, max_pair_i[:, None] >= results_i)
 
-    mask = np.zeros((n_results, n_docs))
-    mask[results_i[1:], self.ranking[:-1]] = True
-    mask = np.cumsum(mask, axis=0).astype(bool)
+        safe_log = np.tile(doc_scores[None, :], [n_results, 1])
 
-    safe_log[mask] = np.amin(safe_log)
-    safe_max = np.amax(safe_log, axis=1)
-    safe_log -= safe_max[:, None] - 18
-    safe_exp = np.exp(safe_log)
-    safe_exp[mask] = 0
+        mask = np.zeros((n_results, n_docs))
+        mask[results_i[1:], self.ranking[:-1]] = True
+        mask = np.cumsum(mask, axis=0).astype(bool)
 
-    ranking_log = doc_scores[self.ranking] - safe_max + 18
-    ranking_exp = np.exp(ranking_log)
+        safe_log[mask] = np.amin(safe_log)
+        safe_max = np.amax(safe_log, axis=1)
+        safe_log -= safe_max[:, None] - 18
+        safe_exp = np.exp(safe_log)
+        safe_exp[mask] = 0
 
-    safe_denom = np.sum(safe_exp, axis=1)
-    ranking_prob = ranking_exp/safe_denom
+        ranking_log = doc_scores[self.ranking] - safe_max + 18
+        ranking_exp = np.exp(ranking_log)
 
-    tiled_prob = np.tile(ranking_prob[None, :], [n_pairs, 1])
+        safe_denom = np.sum(safe_exp, axis=1)
+        ranking_prob = ranking_exp / safe_denom
 
-    safe_prob = np.ones((n_pairs, n_results))
-    safe_prob[range_mask] = tiled_prob[range_mask]
+        tiled_prob = np.tile(ranking_prob[None, :], [n_pairs, 1])
 
-    safe_pair_prob = np.prod(safe_prob, axis=1)
+        safe_prob = np.ones((n_pairs, n_results))
+        safe_prob[range_mask] = tiled_prob[range_mask]
 
-    return safe_pair_prob
+        safe_pair_prob = np.prod(safe_prob, axis=1)
 
-  def _calculate_flipped_prob(self, pos_ind, neg_ind, doc_scores):
-    n_pos = pos_ind.shape[0]
-    n_neg = neg_ind.shape[0]
-    n_pairs = n_pos * n_neg
-    n_results = self.ranking.shape[0]
-    n_docs = doc_scores.shape[0]
+        return safe_pair_prob
 
-    results_i = np.arange(n_results)
-    pair_i = np.arange(n_pairs)
-    doc_i = np.arange(n_docs)
+    def _calculate_flipped_prob(self, pos_ind, neg_ind, doc_scores):
+        n_pos = pos_ind.shape[0]
+        n_neg = neg_ind.shape[0]
+        n_pairs = n_pos * n_neg
+        n_results = self.ranking.shape[0]
+        n_docs = doc_scores.shape[0]
 
-    pos_pair_i = np.tile(pos_ind, n_neg)
-    neg_pair_i = np.repeat(neg_ind, n_pos)
+        results_i = np.arange(n_results)
+        pair_i = np.arange(n_pairs)
+        doc_i = np.arange(n_docs)
 
-    flipped_rankings = np.tile(self.ranking[None, :],
-                               [n_pairs, 1])
-    flipped_rankings[pair_i, pos_pair_i] = self.ranking[neg_pair_i]
-    flipped_rankings[pair_i, neg_pair_i] = self.ranking[pos_pair_i]
+        pos_pair_i = np.tile(pos_ind, n_neg)
+        neg_pair_i = np.repeat(neg_ind, n_pos)
 
-    min_pair_i = np.minimum(pos_pair_i, neg_pair_i)
-    max_pair_i = np.maximum(pos_pair_i, neg_pair_i)
-    range_mask = np.logical_and(min_pair_i[:, None] <= results_i,
-                                max_pair_i[:, None] >= results_i)
+        flipped_rankings = np.tile(self.ranking[None, :], [n_pairs, 1])
+        flipped_rankings[pair_i, pos_pair_i] = self.ranking[neg_pair_i]
+        flipped_rankings[pair_i, neg_pair_i] = self.ranking[pos_pair_i]
 
-    flipped_log = doc_scores[flipped_rankings]
+        min_pair_i = np.minimum(pos_pair_i, neg_pair_i)
+        max_pair_i = np.maximum(pos_pair_i, neg_pair_i)
+        range_mask = np.logical_and(min_pair_i[:, None] <= results_i, max_pair_i[:, None] >= results_i)
 
-    safe_log = np.tile(doc_scores[None, None, :],
-                       [n_pairs, n_results, 1])
+        flipped_log = doc_scores[flipped_rankings]
 
-    results_ij = np.tile(results_i[None, 1:], [n_pairs, 1])
-    pair_ij = np.tile(pair_i[:, None], [1, n_results-1])
-    mask = np.zeros((n_pairs, n_results, n_docs))
-    mask[pair_ij, results_ij, flipped_rankings[:, :-1]] = True
-    mask = np.cumsum(mask, axis=1).astype(bool)
+        safe_log = np.tile(doc_scores[None, None, :], [n_pairs, n_results, 1])
 
-    safe_log[mask] = np.amin(safe_log)
-    safe_max = np.amax(safe_log, axis=2)
-    safe_log -= safe_max[:, :, None] - 18
-    flipped_log -= safe_max - 18
-    flipped_exp = np.exp(flipped_log)
+        results_ij = np.tile(results_i[None, 1:], [n_pairs, 1])
+        pair_ij = np.tile(pair_i[:, None], [1, n_results - 1])
+        mask = np.zeros((n_pairs, n_results, n_docs))
+        mask[pair_ij, results_ij, flipped_rankings[:, :-1]] = True
+        mask = np.cumsum(mask, axis=1).astype(bool)
 
-    safe_exp = np.exp(safe_log)
-    safe_exp[mask] = 0
-    safe_denom = np.sum(safe_exp, axis=2)
-    safe_prob = np.ones((n_pairs, n_results))
-    safe_prob[range_mask] = (flipped_exp/safe_denom)[range_mask]
+        safe_log[mask] = np.amin(safe_log)
+        safe_max = np.amax(safe_log, axis=2)
+        safe_log -= safe_max[:, :, None] - 18
+        flipped_log -= safe_max - 18
+        flipped_exp = np.exp(flipped_log)
 
-    safe_pair_prob = np.prod(safe_prob, axis=1)
+        safe_exp = np.exp(safe_log)
+        safe_exp[mask] = 0
+        safe_denom = np.sum(safe_exp, axis=2)
+        safe_prob = np.ones((n_pairs, n_results))
+        safe_prob[range_mask] = (flipped_exp / safe_denom)[range_mask]
 
-    return safe_pair_prob
+        safe_pair_prob = np.prod(safe_prob, axis=1)
 
+        return safe_pair_prob

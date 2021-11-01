@@ -12,6 +12,7 @@ from models.linearmodel import LinearModel
 from algorithms.basiconlineranker import BasicOnlineRanker
 import sys
 
+
 # import os
 
 # Pairwise Logistic Regression
@@ -77,9 +78,8 @@ class PairRank(BasicOnlineRanker):
         self.ind = ind
         self.A = self._lambda * np.identity(self.n_features)
         self.InvA = np.linalg.pinv(self.A)
-        self.model = LinearModel(
-            n_features=self.n_features, learning_rate=learning_rate, learning_rate_decay=1, n_candidates=1,
-        )
+        self.model = LinearModel(n_features=self.n_features, learning_rate=learning_rate, learning_rate_decay=1,
+            n_candidates=1, )
         self.history = {}
         self.n_pairs = []
         self.pair_index = []
@@ -114,20 +114,12 @@ class PairRank(BasicOnlineRanker):
 
     def get_name(self):
         if self.update == "gd" or self.update == "gd_diag" or self.update == "gd_recent":
-            self.name = "PAIRRANK-None-None-{}-{}-{}-{}-{}-{}".format(
-                self.update, self._lambda, self.alpha, self.refine, self.rank, self.ind
-            )
+            self.name = "PAIRRANK-None-None-{}-{}-{}-{}-{}-{}".format(self.update, self._lambda, self.alpha,
+                self.refine, self.rank, self.ind)
         else:
-            self.name = "PAIRRANK-{}-{}-{}-{}-{}-{}-{}-{}".format(
-                self.learning_rate,
-                self.learning_rate_decay,
-                self.update,
-                self._lambda,
-                self.alpha,
-                self.refine,
-                self.rank,
-                self.ind,
-            )
+            self.name = "PAIRRANK-{}-{}-{}-{}-{}-{}-{}-{}".format(self.learning_rate, self.learning_rate_decay,
+                                                                  self.update, self._lambda, self.alpha, self.refine,
+                                                                  self.rank, self.ind, )
 
     def get_lcb(self, query_feat):
 
@@ -328,8 +320,7 @@ class PairRank(BasicOnlineRanker):
         for p in pairs:
             diff_feat = (self._last_query_feat[p[0]] - self._last_query_feat[p[1]]).reshape(1, -1)
             self.InvA -= multi_dot([self.InvA, diff_feat.T, diff_feat, self.InvA]) / float(
-                1 + np.dot(np.dot(diff_feat, self.InvA), diff_feat.T)
-            )
+                1 + np.dot(np.dot(diff_feat, self.InvA), diff_feat.T))
 
         return pairs
 
@@ -450,12 +441,6 @@ class PairRank(BasicOnlineRanker):
         train_x, train_y = self.generate_training_data()
         myargs = (train_x, train_y)
         betas = np.random.rand(train_x.shape[1])
-        result = minimize(
-            self.cost_func_reg,
-            x0=betas,
-            args=myargs,
-            method="L-BFGS-B",
-            jac=self.log_gradient_reg,
-            options={"ftol": 1e-6},
-        )
+        result = minimize(self.cost_func_reg, x0=betas, args=myargs, method="L-BFGS-B", jac=self.log_gradient_reg,
+            options={"ftol": 1e-6}, )
         self.model.update_weights(result.x)

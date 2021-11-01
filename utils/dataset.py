@@ -16,34 +16,22 @@ def _add_zero_to_vector(vector, dtype=np.int32):
 
 
 class DataSet(object):
-
     """
     Class designed to manage meta-data for datasets.
     """
 
-    def __init__(
-        self,
-        name,
-        data_paths,
-        click_model_type,
-        small=False,
-        num_features=None,
-        output_dir=None,
-        max_folds=-1,
-        multileave_feat=None,
-    ):
+    def __init__(self, name, data_paths, click_model_type, small=False, num_features=None, output_dir=None,
+                 max_folds=-1, multileave_feat=None, ):
         self.name = name
 
         self.small = small
         self.click_model_type = click_model_type
         self.num_features = num_features
-        # print data_paths
         if output_dir is None:
             self.output_dir = name
         else:
             self.output_dir = output_dir
         if type(data_paths) == str:
-            # print("its str")s
             self.data_paths = glob.glob(data_paths)
         elif type(data_paths) == list:
             self.data_paths = []
@@ -52,7 +40,6 @@ class DataSet(object):
         else:
             assert False, "Unknown type for data_paths: %s" % str(type(data_paths))
 
-        # print(data_paths)
         if max_folds <= 0:
             self.max_folds = 999
         else:
@@ -67,8 +54,7 @@ class DataSet(object):
                     self._multileave_feat.append(str(feat))
                 elif type(feat) == list:
                     assert all(type(x) in [int, str] for x in feat), (
-                        "Tried to add non int feature in list for  %s." % self.name
-                    )
+                            "Tried to add non int feature in list for  %s." % self.name)
                     self._multileave_feat.extend([str(x) for x in feat])
                 else:
                     assert False, "Invalid feature type %s given for dataset %s." % (type(feat), self.name,)
@@ -107,6 +93,7 @@ class DataFold(object):
         self.num_folds = dataset.num_data_folds()
         self.num_runs_per_fold = dataset.num_runs_per_fold(sim_args)
         self._raw_multileave_feat = dataset.multileave_feat()
+        self.group_criteria = sim_args.group
         if not self.validation_data:
             self.heldout_tag = "TEST"
         else:
@@ -117,10 +104,20 @@ class DataFold(object):
         e_i = self.train_doclist_ranges[ranking_index + 1]
         return self.train_label_vector[s_i:e_i]
 
+    def train_query_groups(self, ranking_index):
+        s_i = self.train_doclist_ranges[ranking_index]
+        e_i = self.train_doclist_ranges[ranking_index + 1]
+        return self.train_group[s_i:e_i]
+
     def test_query_labels(self, ranking_index):
         s_i = self.test_doclist_ranges[ranking_index]
         e_i = self.test_doclist_ranges[ranking_index + 1]
         return self.test_label_vector[s_i:e_i]
+
+    def test_query_groups(self, ranking_index):
+        s_i = self.train_doclist_ranges[ranking_index]
+        e_i = self.train_doclist_ranges[ranking_index + 1]
+        return self.test_group[s_i:e_i]
 
     def n_train_queries(self):
         return self.train_doclist_ranges.shape[0] - 1
@@ -135,7 +132,7 @@ class DataFold(object):
         return self.test_feature_matrix.shape[0]
 
     def num_features_known(self):
-        return not self.num_features is None
+        return self.num_features is not None
 
     def data_ready(self):
         return self._data_ready
@@ -275,11 +272,7 @@ class DataFold(object):
         for i, ra in enumerate(ranges):
             qptr[i + 1] = ra[1]
 
-        return (
-            self._make_shared(feature_matrix),
-            self._make_shared(qptr),
-            self._make_shared(label_vector),
-        )
+        return self._make_shared(feature_matrix), self._make_shared(qptr), self._make_shared(label_vector)
 
     def read_data(self):
         """
@@ -348,16 +341,14 @@ class DataFold(object):
         if not train_read:
             doclists = []
             labels = []
-            _, n_doclists, n_labels, training_features = self._read_file(
-                self.data_path + "train.txt", filter_non_uniq=True
-            )
+            _, n_doclists, n_labels, training_features = self._read_file(self.data_path + "train.txt",
+                                                                         filter_non_uniq=True)
             doclists.extend(n_doclists)
             labels.extend(n_labels)
 
             if not validation_as_test and validation_in_train:
-                _, n_doclists, n_labels, training_features = self._read_file(
-                    self.data_path + "vali.txt", training_features, filter_non_uniq=True
-                )
+                _, n_doclists, n_labels, training_features = self._read_file(self.data_path + "vali.txt",
+                                                                             training_features, filter_non_uniq=True)
                 doclists.extend(n_doclists)
                 labels.extend(n_labels)
 
@@ -366,24 +357,16 @@ class DataFold(object):
                 with open(fmap_pickle_path, "wb") as f:
                     pickle.dump((FOLDDATA_WRITE_VERSION, self.feature_map), f)
 
-            (
-                self.train_feature_matrix,
-                self.train_doclist_ranges,
-                self.train_label_vector,
-            ) = self._convert_featureDicts(doclists, labels, self.feature_map)
+            (self.train_feature_matrix, self.train_doclist_ranges,
+             self.train_label_vector,) = self._convert_featureDicts(doclists, labels, self.feature_map)
             del doclists
             del labels
             # invoking garbage collection, to avoid memory clogging
             gc.collect()
             if store_pickle_after_read:
-                np.savez(
-                    train_pickle_path,
-                    train_version=FOLDDATA_WRITE_VERSION,
-                    feature_map=self.feature_map,
-                    feature_matrix=self.train_feature_matrix,
-                    doclist_ranges=self.train_doclist_ranges,
-                    label_vector=self.train_label_vector,
-                )
+                np.savez(train_pickle_path, train_version=FOLDDATA_WRITE_VERSION, feature_map=self.feature_map,
+                         feature_matrix=self.train_feature_matrix, doclist_ranges=self.train_doclist_ranges,
+                         label_vector=self.train_label_vector, )
 
         if not train_only and not test_read:
             if not validation_as_test:
@@ -392,20 +375,15 @@ class DataFold(object):
                 _, test_doclists, test_labels, _ = self._read_file(self.data_path + "vali.txt")
 
             (self.test_feature_matrix, self.test_doclist_ranges, self.test_label_vector,) = self._convert_featureDicts(
-                test_doclists, test_labels, self.feature_map
-            )
+                test_doclists, test_labels, self.feature_map)
             del test_doclists
             del test_labels
             # invoking garbage collection, to avoid memory clogging
             gc.collect()
             if store_pickle_after_read:
-                np.savez(
-                    test_pickle_path,
-                    test_version=FOLDDATA_WRITE_VERSION,
-                    test_feature_matrix=self.test_feature_matrix,
-                    test_doclist_ranges=self.test_doclist_ranges,
-                    test_label_vector=self.test_label_vector,
-                )
+                np.savez(test_pickle_path, test_version=FOLDDATA_WRITE_VERSION,
+                         test_feature_matrix=self.test_feature_matrix, test_doclist_ranges=self.test_doclist_ranges,
+                         test_label_vector=self.test_label_vector, )
 
         elif train_only:
             self.test_feature_matrix = None
@@ -443,16 +421,38 @@ class DataFold(object):
         if not self.num_features_known():
             self.num_features = self.train_feature_matrix.shape[0]
         assert self.num_features == self.train_feature_matrix.shape[0], (
-            "Expected %d features but found %d in training matrix"
-            % (self.num_features, self.train_feature_matrix.shape[0],)
-        )
+                "Expected %d features but found %d in training matrix" % (
+            self.num_features, self.train_feature_matrix.shape[0],))
         if not train_only:
             assert self.num_features == self.test_feature_matrix.shape[0], (
-                "Expected %d features but found %d in test matrix"
-                % (self.num_features, self.test_feature_matrix.shape[0],)
-            )
+                        "Expected %d features but found %d in test matrix" % (
+                    self.num_features, self.test_feature_matrix.shape[0],))
 
         self.train_feature_matrix = self.train_feature_matrix.T
         if not train_only:
             self.test_feature_matrix = self.test_feature_matrix.T
         self._data_ready = True
+
+        if self.group_criteria == "inlink":
+            self.train_group = 1 * (self.train_feature_matrix[:, 127] <= 0)
+            self.test_group = 1 * (self.test_feature_matrix[:, 127] <= 0)
+            self.train_feature_matrix[:, 127] = 0
+            self.test_feature_matrix[:, 127] = 0
+        elif self.group_criteria == "pagerank":
+            self.train_group = 1 * (self.train_feature_matrix[:, 129] <= 0.12)
+            self.test_group = 1 * (self.test_feature_matrix[:, 129] <= 0.12)
+            self.train_feature_matrix[:, 129] = 0
+            self.test_feature_matrix[:, 129] = 0
+        elif self.group_criteria == "470":
+            self.train_group = 1 * (self.train_feature_matrix[:, 470] <= 0)
+            self.test_group = 1 * (self.test_feature_matrix[:, 470] <= 0)
+            self.train_feature_matrix[:, 470] = 0
+            self.test_feature_matrix[:, 470] = 0
+        elif self.group_criteria == "8":
+            self.train_group = 1 * (self.train_feature_matrix[:, 8] <= 0.92)
+            self.test_group = 1 * (self.test_feature_matrix[:, 8] <= 0.92)
+            self.train_feature_matrix[:, 8] = 0
+            self.test_feature_matrix[:, 8] = 0
+        else:
+            print("Group attribute not included.")
+            exit()
